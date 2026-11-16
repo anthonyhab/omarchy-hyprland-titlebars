@@ -51,6 +51,10 @@ public:
 
   void updateRules();
   void onConfigReloaded();
+  // Its window's menu items changed (menus.hpp).
+  void onMenusChanged();
+  // The window's xdg-toplevel tag, which its menu is registered under.
+  std::string menuTag();
 
   WP<COmarchyFloatingHyprBar> m_self;
 
@@ -84,6 +88,9 @@ private:
   void renderBarButtons(Render::CRenderContext &ctx, CBox *barBox, const float scale, const float a);
   void renderBarButtonsText(Render::CRenderContext &ctx, CBox *barBox, const float scale, const float a);
   void damageOnButtonHover();
+  void renderMenus(Render::CRenderContext &ctx, const CBox &barBox, float scale, float a, float startX, float endX);
+  // The menu item under COORDS (bar-relative, logical), or -1.
+  int menuAt(const Vector2D &coords);
 
   bool inputIsValid();
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
@@ -121,6 +128,19 @@ private:
 
   // for dynamic updates
   int m_iLastHeight = 0;
+
+  // The window's top-level menu items as last drawn: bar-relative logical x
+  // and width, for hits and hover.
+  struct SMenuLabel {
+    int32_t id = 0;
+    std::string label;
+    bool enabled = true;
+    float x = 0, w = 0;
+    std::map<int, SP<Render::ITexture>> tex; // by monitor scale x100
+  };
+  std::vector<SMenuLabel> m_menuLabels;
+  bool m_bMenusDirty = true;
+  int m_iMenuHover = -1;
 
   size_t getVisibleButtonCount(Config::INTEGER barButtonPadding, Config::INTEGER barPadding, const Vector2D &bufferSize, const float scale);
 

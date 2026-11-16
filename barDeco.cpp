@@ -28,6 +28,7 @@
 #include "BarPassElement.hpp"
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include "appName.hpp"
+#include "menus.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -259,6 +260,28 @@ void COmarchyFloatingHyprBar::handleDownEvent(Event::SCallbackInfo &info, std::o
 
   if (doButtonPress(BARPADDING, BARBUTTONPADDING, HEIGHT, COORDS, BUTTONSRIGHT))
     return;
+
+  // A menu title opens its menu: the app draws it, just under the bar where
+  // the title starts, so the click says where that is from the window's top left.
+  const int hit = menuAt(COORDS);
+  if (!m_menuLabels.empty()) {
+    std::string spans;
+    for (const auto &l : m_menuLabels)
+      spans += std::format(" {}[{:.0f}+{:.0f}]", l.label, l.x, l.w);
+    LOG(Log::INFO, "[hyprbars] menus: press at {:.0f},{:.0f} on {} hits {}:{}", COORDS.x, COORDS.y, menuTag(), hit, spans);
+  }
+  if (hit >= 0) {
+    const auto &label = m_menuLabels[hit];
+    if (label.enabled) {
+      const auto PWORKSPACE = PWINDOW->m_workspace;
+      const auto WORKSPACEOFFSET = PWORKSPACE && !(PWINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED) ? PWORKSPACE->m_renderOffset->value() : Vector2D();
+      const auto content = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET;
+      const auto x = static_cast<int32_t>(std::round(assignedBoxGlobal().x + label.x - content.x));
+      OmarchyFloatingMenus::click(menuTag(), label.id, x, 0);
+    }
+    m_bDragPending = false;
+    return;
+  }
 
   if (!ON_DOUBLE_CLICK.empty() &&
       std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_lastMouseDown).count() < 400 /* Arbitrary delay I found suitable */) {
@@ -699,6 +722,7 @@ void COmarchyFloatingHyprBar::renderPass(Render::CRenderContext &ctx, PHLMONITOR
   }
 
   CBox textBox = {titleBarBox.x, titleBarBox.y, (int)BARBUF.x, (int)BARBUF.y};
+  float menusStart = g_pOmarchyFloatingGlobalState->config.barPadding->value();
   if (ENABLETITLE && m_pTextTex) {
     const auto BARPADDING = g_pOmarchyFloatingGlobalState->config.barPadding->value();
     const auto BARBUTTONPADDING = g_pOmarchyFloatingGlobalState->config.barButtonPadding->value();
@@ -718,6 +742,18 @@ void COmarchyFloatingHyprBar::renderPass(Render::CRenderContext &ctx, PHLMONITOR
     CBox titleBox = {textBox.x + xOffset, textBox.y + yOffset, m_pTextTex->m_size.x, m_pTextTex->m_size.y};
 
     g_pHyprOpenGL->renderTexture(ctx, m_pTextTex, titleBox, {.a = a});
+    menusStart = (xOffset + m_pTextTex->m_size.x) / pMonitor->m_scale + 8;
+  }
+
+  // Menus follow a title at the left, as on a Mac, and stop short of the buttons.
+  if (g_pOmarchyFloatingGlobalState->config.barTextAlign->value() == "left") {
+    const auto BARPADDING = g_pOmarchyFloatingGlobalState->config.barPadding->value();
+    const auto BARBUTTONPADDING = g_pOmarchyFloatingGlobalState->config.barButtonPadding->value();
+    float buttons = BARBUTTONPADDING;
+    for (auto &b : g_pOmarchyFloatingGlobalState->buttons)
+      buttons += b.size + BARBUTTONPADDING;
+    const float width = DECOBOX.w;
+    renderMenus(ctx, textBox, pMonitor->m_scale, a, menusStart, BUTTONSRIGHT ? width - BARPADDING - buttons : width - BARPADDING);
   }
 
   renderBarButtons(ctx, &textBox, pMonitor->m_scale, a);
@@ -849,5 +885,89 @@ void COmarchyFloatingHyprBar::damageOnButtonHover() {
   if (hoverState != m_iButtonHoverState) {
     m_iButtonHoverState = hoverState;
     damageEntire();
+  }
+
+  if (const int menu = menuAt(COORDS); menu != m_iMenuHover) {
+    m_iMenuHover = menu;
+    damageEntire();
+  }
+}
+
+int COmarchyFloatingHyprBar::menuAt(const Vector2D &coords) {
+  const auto HEIGHT = g_pOmarchyFloatingGlobalState->config.barHeight->value();
+  if (coords.y < 0 || coords.y >= HEIGHT)
+    return -1;
+  for (size_t i = 0; i < m_menuLabels.size(); ++i) {
+    const auto &l = m_menuLabels[i];
+    if (l.w > 0 && coords.x >= l.x && coords.x < l.x + l.w)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+std::string COmarchyFloatingHyprBar::menuTag() {
+  const auto PWINDOW = m_pWindow.lock();
+  if (!PWINDOW)
+    return {};
+  return PWINDOW->backend().metadata().tag.value_or("");
+}
+
+void COmarchyFloatingHyprBar::onMenusChanged() {
+  m_bMenusDirty = true;
+  damageEntire();
+}
+
+// The window's top-level menu titles, from startX to at most endX (logical,
+// bar-relative), each a hover target in the title's font.
+void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBox &barBox, float scale, float a, float startX, float endX) {
+  if (m_bMenusDirty) {
+    m_menuLabels.clear();
+    for (const auto &item : OmarchyFloatingMenus::items(menuTag()))
+      m_menuLabels.push_back({.id = item.id, .label = item.label, .enabled = item.enabled});
+    m_bMenusDirty = false;
+    m_iMenuHover = -1;
+  }
+  if (m_menuLabels.empty())
+    return;
+
+  const auto SIZE = g_pOmarchyFloatingGlobalState->config.barTextSize->value();
+  const auto WEIGHT = g_pOmarchyFloatingGlobalState->config.barTextWeight->value();
+  const auto FONT = g_pOmarchyFloatingGlobalState->config.barTextFont->value();
+  const CHyprColor COLOR = m_bForcedTitleColor.value_or(configColor(g_pOmarchyFloatingGlobalState->config.textColor->value()));
+  constexpr float PAD = 8;   // each side of a title, inside its hover box
+  constexpr float INSET = 4; // the hover box from the bar's top and bottom
+
+  const int key = static_cast<int>(std::round(scale * 100));
+  const bool redraw = m_bTitleColorChanged;
+  // Every title takes clicks only where this frame draws it: one past the
+  // last that fits keeps none from a wider frame before.
+  for (auto &l : m_menuLabels)
+    l.w = 0;
+  float x = startX;
+  for (size_t i = 0; i < m_menuLabels.size(); ++i) {
+    auto &l = m_menuLabels[i];
+    if (redraw)
+      l.tex.clear();
+    auto &tex = l.tex[key];
+    if (!tex || tex->m_texID == 0)
+      tex = g_pHyprRenderer->renderText(l.label, COLOR, static_cast<int>(std::round(SIZE * scale)), false, FONT, 0, WEIGHT.m_value);
+    if (!tex || tex->m_texID == 0)
+      continue;
+    const float w = tex->m_size.x / scale + 2 * PAD;
+    if (x + w > endX)
+      break; // the rest don't fit; they keep w = 0 and take no clicks
+    l.x = x;
+    l.w = w;
+
+    if (static_cast<int>(i) == m_iMenuHover && l.enabled) {
+      auto hover = COLOR;
+      hover.a = 0.14 * a;
+      CBox box = {barBox.x + x * scale, barBox.y + INSET * scale, w * scale, barBox.h - 2 * INSET * scale};
+      g_pHyprOpenGL->renderRect(ctx, box.round(), hover, {.round = static_cast<int>(std::round(4 * scale))});
+    }
+
+    CBox textBox = {barBox.x + (x + PAD) * scale, barBox.y + (barBox.h - tex->m_size.y) / 2.0, tex->m_size.x, tex->m_size.y};
+    g_pHyprOpenGL->renderTexture(ctx, tex, textBox.round(), {.a = a * (l.enabled ? 1.F : 0.45F)});
+    x += w;
   }
 }

@@ -22,6 +22,7 @@
 
 #include "barDeco.hpp"
 #include "globals.hpp"
+#include "menus.hpp"
 
 extern "C" {
 #include <lua.h>
@@ -237,12 +238,20 @@ static PLUGIN_DESCRIPTION_INFO initializeOmarchyFloating(HANDLE handle) {
     onNewWindow(w);
   }
 
+  OmarchyFloatingMenus::start([](const std::string &tag) {
+    for (auto &b : g_pOmarchyFloatingGlobalState->bars)
+      if (b && b->menuTag() == tag)
+        b->onMenusChanged();
+  });
+
   HyprlandAPI::reloadConfig();
 
   return {"hyprbars", "A plugin to add title bars to windows.", "Vaxry", "1.0"};
 }
 
 static void exitOmarchyFloating() {
+  OmarchyFloatingMenus::stop();
+
   for (auto &m : State::monitorState()->monitors())
     m->m_scheduledRecalc = true;
 
