@@ -934,8 +934,14 @@ void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBo
   const auto WEIGHT = g_pOmarchyFloatingGlobalState->config.barTextWeight->value();
   const auto FONT = g_pOmarchyFloatingGlobalState->config.barTextFont->value();
   const CHyprColor COLOR = m_bForcedTitleColor.value_or(configColor(g_pOmarchyFloatingGlobalState->config.textColor->value()));
-  constexpr float PAD = 8;   // each side of a title, inside its hover box
-  constexpr float INSET = 4; // the hover box from the bar's top and bottom
+  constexpr float PAD = 8; // each side of a title, inside its hover box
+  // A hovered title lifts as a hovered button does: the buttons' height and
+  // rounding, in the title's color.
+  const auto &BUTTONS = g_pOmarchyFloatingGlobalState->buttons;
+  const float HOVERH = std::min<float>(BUTTONS.empty() ? barBox.h / scale - 10 : BUTTONS.front().size, barBox.h / scale);
+  const auto BUTTONROUNDING = g_pOmarchyFloatingGlobalState->config.buttonRounding->value();
+  const int maxRounding = static_cast<int>(std::round(HOVERH * scale / 2.0));
+  const int rounding = BUTTONROUNDING < 0 ? maxRounding : std::clamp(static_cast<int>(std::round(BUTTONROUNDING * scale)), 0, maxRounding);
 
   const int key = static_cast<int>(std::round(scale * 100));
   const bool redraw = m_bTitleColorChanged;
@@ -950,7 +956,8 @@ void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBo
       l.tex.clear();
     auto &tex = l.tex[key];
     if (!tex || tex->m_texID == 0)
-      tex = g_pHyprRenderer->renderText(l.label, COLOR, static_cast<int>(std::round(SIZE * scale)), false, FONT, 0, WEIGHT.m_value);
+      // The first is the app's own menu, bold as on the Mac.
+      tex = g_pHyprRenderer->renderText(l.label, COLOR, static_cast<int>(std::round(SIZE * scale)), false, FONT, 0, i == 0 ? 700 : WEIGHT.m_value);
     if (!tex || tex->m_texID == 0)
       continue;
     const float w = tex->m_size.x / scale + 2 * PAD;
@@ -961,9 +968,9 @@ void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBo
 
     if (static_cast<int>(i) == m_iMenuHover && l.enabled) {
       auto hover = COLOR;
-      hover.a = 0.14 * a;
-      CBox box = {barBox.x + x * scale, barBox.y + INSET * scale, w * scale, barBox.h - 2 * INSET * scale};
-      g_pHyprOpenGL->renderRect(ctx, box.round(), hover, {.round = static_cast<int>(std::round(4 * scale))});
+      hover.a = 0.18 * a;
+      CBox box = {barBox.x + x * scale, barBox.y + (barBox.h - HOVERH * scale) / 2.0, w * scale, HOVERH * scale};
+      g_pHyprOpenGL->renderRect(ctx, box.round(), hover, {.round = rounding});
     }
 
     CBox textBox = {barBox.x + (x + PAD) * scale, barBox.y + (barBox.h - tex->m_size.y) / 2.0, tex->m_size.x, tex->m_size.y};
