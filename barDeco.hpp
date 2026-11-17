@@ -92,7 +92,8 @@ private:
   // The menu item under COORDS (bar-relative, logical), or -1.
   int menuAt(const Vector2D &coords);
 
-  bool inputIsValid();
+  // `grabbed`: as if no popup held the pointer.
+  bool inputIsValid(bool grabbed = false);
   void onMouseButton(Event::SCallbackInfo &info, IPointer::SButtonEvent e);
   void onTouchDown(Event::SCallbackInfo &info, ITouch::SDownEvent e);
   void onTouchUp(Event::SCallbackInfo &info, ITouch::SUpEvent e);
@@ -141,6 +142,8 @@ private:
   std::vector<SMenuLabel> m_menuLabels;
   bool m_bMenusDirty = true;
   int m_iMenuHover = -1;
+  // The id of the title whose menu the last press opened, or -1.
+  int m_iMenuOpen = -1;
 
   size_t getVisibleButtonCount(Config::INTEGER barButtonPadding, Config::INTEGER barPadding, const Vector2D &bufferSize, const float scale);
 

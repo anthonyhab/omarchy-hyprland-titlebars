@@ -96,11 +96,11 @@ void COmarchyFloatingHyprBar::onPositioningReply(const SDecorationPositioningRep
 
 std::string COmarchyFloatingHyprBar::getDisplayName() { return "Hyprbar"; }
 
-bool COmarchyFloatingHyprBar::inputIsValid() {
+bool COmarchyFloatingHyprBar::inputIsValid(bool grabbed) {
   if (m_hidden || !g_pOmarchyFloatingGlobalState->config.enabled->value())
     return false;
 
-  if (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource()))
+  if (!grabbed && g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource()))
     return false;
 
   const auto MOUSE = g_pInputManager->getMouseCoordsInternal();
@@ -148,8 +148,26 @@ void COmarchyFloatingHyprBar::onMouseButton(Event::SCallbackInfo &info, IPointer
     return;
   }
 
-  if (!inputIsValid())
-    return;
+  if (!inputIsValid()) {
+    // An open menu (a popup's grab) refuses the bar. A press on a menu title
+    // ends it and goes on, as a Mac's menu bar moves between menus; on the
+    // title whose menu is open, it only closes that menu.
+    if (!g_pSeatManager->m_seatGrab || !inputIsValid(true))
+      return;
+    const int hit = menuAt(cursorRelativeToBar());
+    if (hit < 0)
+      return;
+    const bool open = m_menuLabels[hit].id == m_iMenuOpen;
+    g_pSeatManager->setGrab(nullptr);
+    m_iMenuOpen = -1;
+    if (open) {
+      info.cancelled = true;
+      m_bCancelledDown = true;
+      m_bDragPending = false;
+      return;
+    }
+  } else if (!g_pSeatManager->m_seatGrab)
+    m_iMenuOpen = -1; // closed since, by a choice or Escape
 
   handleDownEvent(info, std::nullopt);
 }
@@ -278,6 +296,7 @@ void COmarchyFloatingHyprBar::handleDownEvent(Event::SCallbackInfo &info, std::o
       const auto content = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET;
       const auto x = static_cast<int32_t>(std::round(assignedBoxGlobal().x + label.x - content.x));
       OmarchyFloatingMenus::click(menuTag(), label.id, x, 0);
+      m_iMenuOpen = label.id;
     }
     m_bDragPending = false;
     return;
@@ -723,7 +742,11 @@ void COmarchyFloatingHyprBar::renderPass(Render::CRenderContext &ctx, PHLMONITOR
 
   CBox textBox = {titleBarBox.x, titleBarBox.y, (int)BARBUF.x, (int)BARBUF.y};
   float menusStart = g_pOmarchyFloatingGlobalState->config.barPadding->value();
-  if (ENABLETITLE && m_pTextTex) {
+  // A Mac app's first menu is named after it, and shown bold: that is the
+  // title then, as on a Mac, not a second copy of it.
+  const bool TITLEISMENU = !m_menuLabels.empty() && m_menuLabels[0].label == title &&
+      g_pOmarchyFloatingGlobalState->config.barTextAlign->value() == "left";
+  if (ENABLETITLE && m_pTextTex && !TITLEISMENU) {
     const auto BARPADDING = g_pOmarchyFloatingGlobalState->config.barPadding->value();
     const auto BARBUTTONPADDING = g_pOmarchyFloatingGlobalState->config.barButtonPadding->value();
     const auto ALIGN = g_pOmarchyFloatingGlobalState->config.barTextAlign->value();
