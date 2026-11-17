@@ -91,6 +91,10 @@ private:
   void renderMenus(Render::CRenderContext &ctx, const CBox &barBox, float scale, float a, float startX, float endX);
   // The menu item under COORDS (bar-relative, logical), or -1.
   int menuAt(const Vector2D &coords);
+  // Asks the app to open the menu of m_menuLabels[index] under its title.
+  void openMenu(int index);
+  // Whether the menu m_iMenuOpen names has closed since (or never showed).
+  bool menuClosed();
 
   // `grabbed`: as if no popup held the pointer.
   bool inputIsValid(bool grabbed = false);
@@ -144,6 +148,8 @@ private:
   int m_iMenuHover = -1;
   // The id of the title whose menu the last press opened, or -1.
   int m_iMenuOpen = -1;
+  bool m_bMenuGrabbed = false;
+  Time::steady_tp m_menuOpenedAt;
 
   size_t getVisibleButtonCount(Config::INTEGER barButtonPadding, Config::INTEGER barPadding, const Vector2D &bufferSize, const float scale);
 

@@ -157,16 +157,27 @@ void COmarchyFloatingHyprBar::onMouseButton(Event::SCallbackInfo &info, IPointer
     const int hit = menuAt(cursorRelativeToBar());
     if (hit < 0)
       return;
-    const bool open = m_menuLabels[hit].id == m_iMenuOpen;
-    g_pSeatManager->setGrab(nullptr);
-    m_iMenuOpen = -1;
-    if (open) {
+    // Ours open: its title closes it, another's opens in its place (the
+    // app shows it in the same popup). Another popup: it goes, as for any
+    // press outside it, and the title opens.
+    if (m_iMenuOpen < 0 || m_menuLabels[hit].id == m_iMenuOpen) {
+      g_pSeatManager->setGrab(nullptr);
+      if (m_iMenuOpen >= 0) {
+        m_iMenuOpen = -1;
+        damageEntire();
+        info.cancelled = true;
+        m_bCancelledDown = true;
+        m_bDragPending = false;
+        return;
+      }
+    } else {
+      openMenu(hit);
       info.cancelled = true;
       m_bCancelledDown = true;
       m_bDragPending = false;
       return;
     }
-  } else if (!g_pSeatManager->m_seatGrab)
+  } else if (menuClosed())
     m_iMenuOpen = -1; // closed since, by a choice or Escape
 
   handleDownEvent(info, std::nullopt);
@@ -289,15 +300,7 @@ void COmarchyFloatingHyprBar::handleDownEvent(Event::SCallbackInfo &info, std::o
     LOG(Log::INFO, "[hyprbars] menus: press at {:.0f},{:.0f} on {} hits {}:{}", COORDS.x, COORDS.y, menuTag(), hit, spans);
   }
   if (hit >= 0) {
-    const auto &label = m_menuLabels[hit];
-    if (label.enabled) {
-      const auto PWORKSPACE = PWINDOW->m_workspace;
-      const auto WORKSPACEOFFSET = PWORKSPACE && !(PWINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED) ? PWORKSPACE->m_renderOffset->value() : Vector2D();
-      const auto content = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET;
-      const auto x = static_cast<int32_t>(std::round(assignedBoxGlobal().x + label.x - content.x));
-      OmarchyFloatingMenus::click(menuTag(), label.id, x, 0);
-      m_iMenuOpen = label.id;
-    }
+    openMenu(hit);
     m_bDragPending = false;
     return;
   }
@@ -913,7 +916,46 @@ void COmarchyFloatingHyprBar::damageOnButtonHover() {
   if (const int menu = menuAt(COORDS); menu != m_iMenuHover) {
     m_iMenuHover = menu;
     damageEntire();
+    // With a menu open, the pointer moving onto another title opens its
+    // menu, as across a Mac's menu bar.
+    if (menuClosed()) {
+      m_iMenuOpen = -1; // closed since, by a choice or Escape
+    } else if (m_iMenuOpen >= 0 && menu >= 0 && m_menuLabels[menu].id != m_iMenuOpen && inputIsValid(true))
+      openMenu(menu);
   }
+}
+
+void COmarchyFloatingHyprBar::openMenu(int index) {
+  const auto PWINDOW = m_pWindow.lock();
+  const auto &label = m_menuLabels[index];
+  if (!PWINDOW || !label.enabled)
+    return;
+  // The app draws it just under the bar where the title starts, so the click
+  // says where that is from the window's top left.
+  const auto PWORKSPACE = PWINDOW->m_workspace;
+  const auto WORKSPACEOFFSET = PWORKSPACE && !(PWINDOW->m_state & Desktop::View::WINDOW_STATE_PINNED) ? PWORKSPACE->m_renderOffset->value() : Vector2D();
+  const auto content = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET;
+  const auto x = static_cast<int32_t>(std::round(assignedBoxGlobal().x + label.x - content.x));
+  OmarchyFloatingMenus::click(menuTag(), label.id, x, 0);
+  if (m_iMenuOpen < 0)
+    m_bMenuGrabbed = false; // a fresh menu, not one switched in its popup
+  m_iMenuOpen = label.id;
+  m_menuOpenedAt = Time::steadyNow();
+  damageEntire();
+}
+
+bool COmarchyFloatingHyprBar::menuClosed() {
+  if (m_iMenuOpen < 0)
+    return false;
+  // Its popup grabs the pointer once it shows, a moment after the click:
+  // until then (or 2 s, if it never does) the menu is still opening.
+  if (g_pSeatManager->m_seatGrab) {
+    m_bMenuGrabbed = true;
+    return false;
+  }
+  if (m_bMenuGrabbed)
+    return true;
+  return std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_menuOpenedAt).count() > 2000;
 }
 
 int COmarchyFloatingHyprBar::menuAt(const Vector2D &coords) {
@@ -989,7 +1031,9 @@ void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBo
     l.x = x;
     l.w = w;
 
-    if (static_cast<int>(i) == m_iMenuHover && l.enabled) {
+    // The open menu's title stays lit while the pointer is in its menu.
+    const bool OPEN = l.id == m_iMenuOpen && g_pSeatManager->m_seatGrab;
+    if ((static_cast<int>(i) == m_iMenuHover || OPEN) && l.enabled) {
       auto hover = COLOR;
       hover.a = 0.18 * a;
       CBox box = {barBox.x + x * scale, barBox.y + (barBox.h - HOVERH * scale) / 2.0, w * scale, HOVERH * scale};
