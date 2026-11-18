@@ -30,6 +30,7 @@ struct SOmarchyFloatingGlobalState {
   std::vector<SOmarchyFloatingHyprButton> buttons;
   std::vector<WP<COmarchyFloatingHyprBar>> bars;
   uint32_t nobarRuleIdx = 0;
+  uint32_t nobuttonsRuleIdx = 0;
   uint32_t barColorRuleIdx = 0;
   uint32_t titleColorRuleIdx = 0;
 

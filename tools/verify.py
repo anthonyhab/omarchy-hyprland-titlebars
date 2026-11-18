@@ -230,6 +230,36 @@ end
     assert len(remaining) == 1 and remaining[0]['address'] == second_address, remaining
     print('PASS: delayed double-click and close target the clicked window after focus changes', flush=True)
 
+    # `hyprbars:no_buttons` keeps the bar and drops its buttons: a press where
+    # the close button would be closes nothing.
+    # rules() names it, so a config can apply it only where the build knows it.
+    # (eval prints only "ok"; error() fails the call.)
+    ctl('eval', 'local r = table.concat(hl.plugin.hyprbars.rules(), ",") if not r:find("hyprbars:no_buttons", 1, true) then error(r) end')
+    ctl('eval', 'hl.window_rule({ name = "test-no-buttons", match = { class = "^omarchy-titlebars-no-buttons$" }, ["hyprbars:no_buttons"] = true })')
+    bare = subprocess.Popen(['foot', '--app-id=omarchy-titlebars-no-buttons', '--title=No buttons', 'sleep', '90'], env=env, stdout=log, stderr=log)
+    for _ in range(60):
+      windows = json.loads(ctl('clients', '-j'))
+      if len(windows) == 2:
+        break
+      time.sleep(.1)
+    assert len(windows) == 2, windows
+    bare_address = next(window['address'] for window in windows if window['address'] != second_address)
+    ctl('dispatch', f'hl.dsp.window.resize({{ x = 500, y = 350, window = "address:{bare_address}" }})')
+    ctl('dispatch', f'hl.dsp.window.move({{ x = 60, y = 320, window = "address:{bare_address}" }})')
+    time.sleep(.3)
+    capture('no-buttons')
+    pointer(['move 540 305', 'wait 450', 'down', 'up'])
+    time.sleep(.9)
+    windows = {window['address']: window for window in json.loads(ctl('clients', '-j'))}
+    assert bare_address in windows and windows[bare_address]['at'][1] == 320, windows
+    bare.terminate()
+    bare.wait(timeout=5)
+    for _ in range(60):
+      if len(json.loads(ctl('clients', '-j'))) == 1:
+        break
+      time.sleep(.1)
+    print('PASS: a no_buttons titlebar keeps its bar and has no buttons to press', flush=True)
+
     # A bar whose window loses focus before the release, as one minimized from
     # its own button does, must not keep the release armed: the next click in
     # the window would lose its release and the app would see the button held.

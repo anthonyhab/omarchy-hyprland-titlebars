@@ -426,7 +426,7 @@ bool COmarchyFloatingHyprBar::doButtonPress(Config::INTEGER barPadding, Config::
   // check if on a button
   float offset = barPadding;
 
-  for (auto &b : g_pOmarchyFloatingGlobalState->buttons) {
+  for (auto &b : buttons()) {
     const auto BARBUF = Vector2D{(int)assignedBoxGlobal().w, barHeight};
     Vector2D currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 
@@ -451,7 +451,7 @@ void COmarchyFloatingHyprBar::renderBarTitle(const Vector2D &bufferSize, const f
   const auto BARBUTTONPADDING = g_pOmarchyFloatingGlobalState->config.barButtonPadding->value();
 
   float buttonSizes = BARBUTTONPADDING;
-  for (auto &b : g_pOmarchyFloatingGlobalState->buttons) {
+  for (auto &b : buttons()) {
     buttonSizes += b.size + BARBUTTONPADDING;
   }
 
@@ -475,7 +475,7 @@ size_t COmarchyFloatingHyprBar::getVisibleButtonCount(Config::INTEGER barButtonP
   float availableSpace = bufferSize.x - barPadding * scale * 2;
   size_t count = 0;
 
-  for (const auto &button : g_pOmarchyFloatingGlobalState->buttons) {
+  for (const auto &button : buttons()) {
     const float buttonSpace = (button.size + barButtonPadding) * scale;
     if (availableSpace >= buttonSpace) {
       count++;
@@ -502,7 +502,7 @@ void COmarchyFloatingHyprBar::renderBarButtons(Render::CRenderContext &ctx, CBox
 
   int offset = BARPADDING * scale;
   for (size_t i = 0; i < visibleCount; ++i) {
-    auto &button = g_pOmarchyFloatingGlobalState->buttons[i];
+    auto &button = buttons()[i];
     const auto scaledButtonSize = button.size * scale;
     const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -559,7 +559,7 @@ void COmarchyFloatingHyprBar::renderBarButtonsText(Render::CRenderContext &ctx, 
   float noScaleOffset = BARPADDING;
 
   for (size_t i = 0; i < visibleCount; ++i) {
-    auto &button = g_pOmarchyFloatingGlobalState->buttons[i];
+    auto &button = buttons()[i];
     const auto scaledButtonSize = button.size * scale;
     const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -755,7 +755,7 @@ void COmarchyFloatingHyprBar::renderPass(Render::CRenderContext &ctx, PHLMONITOR
     const auto ALIGN = g_pOmarchyFloatingGlobalState->config.barTextAlign->value();
 
     float buttonSizes = BARBUTTONPADDING;
-    for (auto &b : g_pOmarchyFloatingGlobalState->buttons) {
+    for (auto &b : buttons()) {
       buttonSizes += b.size + BARBUTTONPADDING;
     }
 
@@ -775,11 +775,11 @@ void COmarchyFloatingHyprBar::renderPass(Render::CRenderContext &ctx, PHLMONITOR
   if (g_pOmarchyFloatingGlobalState->config.barTextAlign->value() == "left") {
     const auto BARPADDING = g_pOmarchyFloatingGlobalState->config.barPadding->value();
     const auto BARBUTTONPADDING = g_pOmarchyFloatingGlobalState->config.barButtonPadding->value();
-    float buttons = BARBUTTONPADDING;
-    for (auto &b : g_pOmarchyFloatingGlobalState->buttons)
-      buttons += b.size + BARBUTTONPADDING;
+    float buttonsWidth = BARBUTTONPADDING;
+    for (auto &b : buttons())
+      buttonsWidth += b.size + BARBUTTONPADDING;
     const float width = DECOBOX.w;
-    renderMenus(ctx, textBox, pMonitor->m_scale, a, menusStart, BUTTONSRIGHT ? width - BARPADDING - buttons : width - BARPADDING);
+    renderMenus(ctx, textBox, pMonitor->m_scale, a, menusStart, BUTTONSRIGHT ? width - BARPADDING - buttonsWidth : width - BARPADDING);
   }
 
   renderBarButtons(ctx, &textBox, pMonitor->m_scale, a);
@@ -857,6 +857,7 @@ void COmarchyFloatingHyprBar::updateRules() {
   if (!PWINDOW)
     return;
   auto prevHidden = m_hidden;
+  auto prevNoButtons = m_noButtons;
   auto prevForcedTitleColor = m_bForcedTitleColor;
 
   m_bForcedBarColor = std::nullopt;
@@ -868,6 +869,8 @@ void COmarchyFloatingHyprBar::updateRules() {
   const auto workspaceTag = g_pOmarchyFloatingGlobalState->config.workspaceTag->value();
   if (!workspaceTag.empty())
     m_hidden = m_hidden || !PWINDOW->isFloating() || !PWINDOW->m_ruleApplicator->m_tagKeeper.isTagged(workspaceTag);
+  m_noButtons = PWINDOW->m_ruleApplicator->m_otherProps.props.contains(g_pOmarchyFloatingGlobalState->nobuttonsRuleIdx) &&
+                truthy(PWINDOW->m_ruleApplicator->m_otherProps.props.at(g_pOmarchyFloatingGlobalState->nobuttonsRuleIdx)->effect);
   if (PWINDOW->m_ruleApplicator->m_otherProps.props.contains(g_pOmarchyFloatingGlobalState->barColorRuleIdx))
     m_bForcedBarColor = CHyprColor(
         Config::ParserUtils::parseColor(PWINDOW->m_ruleApplicator->m_otherProps.props.at(g_pOmarchyFloatingGlobalState->barColorRuleIdx)->effect).value_or(0));
@@ -883,6 +886,17 @@ void COmarchyFloatingHyprBar::updateRules() {
   }
   if (prevForcedTitleColor != m_bForcedTitleColor)
     m_bTitleColorChanged = true;
+  if (prevNoButtons != m_noButtons) {
+    m_bButtonsDirty = true;
+    m_bTitleColorChanged = true; // the title's width allows for the buttons
+    damageEntire();
+  }
+}
+
+std::vector<SOmarchyFloatingHyprButton> &COmarchyFloatingHyprBar::buttons() {
+  // Mutable for the icon cache the global list keeps; this one stays empty.
+  static std::vector<SOmarchyFloatingHyprButton> none;
+  return m_noButtons ? none : g_pOmarchyFloatingGlobalState->buttons;
 }
 
 void COmarchyFloatingHyprBar::damageOnButtonHover() {
@@ -897,8 +911,8 @@ void COmarchyFloatingHyprBar::damageOnButtonHover() {
   const auto COORDS = cursorRelativeToBar();
 
   unsigned int hoverState = 0;
-  for (size_t i = 0; i < g_pOmarchyFloatingGlobalState->buttons.size(); ++i) {
-    const auto &b = g_pOmarchyFloatingGlobalState->buttons[i];
+  for (size_t i = 0; i < buttons().size(); ++i) {
+    const auto &b = buttons()[i];
     const auto BARBUF = Vector2D{(int)assignedBoxGlobal().w, HEIGHT};
     Vector2D currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 
@@ -1002,7 +1016,7 @@ void COmarchyFloatingHyprBar::renderMenus(Render::CRenderContext &ctx, const CBo
   constexpr float PAD = 8; // each side of a title, inside its hover box
   // A hovered title lifts as a hovered button does: the buttons' height and
   // rounding, in the title's color.
-  const auto &BUTTONS = g_pOmarchyFloatingGlobalState->buttons;
+  const auto &BUTTONS = buttons();
   const float HOVERH = std::min<float>(BUTTONS.empty() ? barBox.h / scale - 10 : BUTTONS.front().size, barBox.h / scale);
   const auto BUTTONROUNDING = g_pOmarchyFloatingGlobalState->config.buttonRounding->value();
   const int maxRounding = static_cast<int>(std::round(HOVERH * scale / 2.0));

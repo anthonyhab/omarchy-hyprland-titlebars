@@ -71,6 +71,10 @@ private:
 
   bool m_bWindowSizeChanged = false;
   bool m_hidden = false;
+  // `hyprbars:no_buttons`: the title and menus without the buttons, for a
+  // window that draws its own (a Mac window's traffic lights).
+  bool m_noButtons = false;
+  std::vector<SOmarchyFloatingHyprButton> &buttons();
   bool m_bTitleColorChanged = false;
   bool m_bLastEnabledState = false;
   bool m_bWindowHasFocus = false;

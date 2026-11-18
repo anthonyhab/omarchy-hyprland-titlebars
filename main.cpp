@@ -141,6 +141,19 @@ int newOmarchyFloatingLuaButton(lua_State *L) {
   return 0;
 }
 
+// The window rule effects this build registers, as a list of names, so a
+// config can use one only where the loaded build knows it: Hyprland reports
+// an unknown effect as a config error, even under pcall.
+int omarchyFloatingLuaRules(lua_State *L) {
+  static const char *const RULES[] = {"hyprbars:no_bar", "hyprbars:no_buttons", "hyprbars:bar_color", "hyprbars:title_color"};
+  lua_createtable(L, std::size(RULES), 0);
+  for (size_t i = 0; i < std::size(RULES); ++i) {
+    lua_pushstring(L, RULES[i]);
+    lua_rawseti(L, -2, i + 1);
+  }
+  return 1;
+}
+
 static PLUGIN_DESCRIPTION_INFO initializeOmarchyFloating(HANDLE handle) {
   OMARCHY_FLOATING_PHANDLE = handle;
 
@@ -156,6 +169,7 @@ static PLUGIN_DESCRIPTION_INFO initializeOmarchyFloating(HANDLE handle) {
 
   g_pOmarchyFloatingGlobalState = makeUnique<SOmarchyFloatingGlobalState>();
   g_pOmarchyFloatingGlobalState->nobarRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:no_bar");
+  g_pOmarchyFloatingGlobalState->nobuttonsRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:no_buttons");
   g_pOmarchyFloatingGlobalState->barColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:bar_color");
   g_pOmarchyFloatingGlobalState->titleColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:title_color");
 
@@ -227,6 +241,7 @@ static PLUGIN_DESCRIPTION_INFO initializeOmarchyFloating(HANDLE handle) {
   HyprlandAPI::addConfigValueV2(OMARCHY_FLOATING_PHANDLE, g_pOmarchyFloatingGlobalState->config.onDoubleClick);
 
   HyprlandAPI::addLuaFunction(OMARCHY_FLOATING_PHANDLE, "hyprbars", "add_button", ::newOmarchyFloatingLuaButton);
+  HyprlandAPI::addLuaFunction(OMARCHY_FLOATING_PHANDLE, "hyprbars", "rules", ::omarchyFloatingLuaRules);
   static auto P4 = Event::bus()->m_events.config.preReload.listen([&] { onPreConfigReload(); });
   static auto P5 = Event::bus()->m_events.config.reloaded.listen([&] { onConfigReloaded(); });
 
@@ -259,6 +274,7 @@ static void exitOmarchyFloating() {
 
   Desktop::Rule::windowEffects()->unregisterEffect(g_pOmarchyFloatingGlobalState->barColorRuleIdx);
   Desktop::Rule::windowEffects()->unregisterEffect(g_pOmarchyFloatingGlobalState->titleColorRuleIdx);
+  Desktop::Rule::windowEffects()->unregisterEffect(g_pOmarchyFloatingGlobalState->nobuttonsRuleIdx);
   Desktop::Rule::windowEffects()->unregisterEffect(g_pOmarchyFloatingGlobalState->nobarRuleIdx);
 }
 
